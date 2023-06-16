@@ -21,8 +21,10 @@ func NewCepHandler() *CepHandler {
 
 func (cepHandler *CepHandler) GetCep(w http.ResponseWriter, r *http.Request) {
 	cep := chi.URLParam(r, "cep")
-	if utils.IsNilOrEmpty(&cep) {
-		w.WriteHeader(http.StatusBadRequest)
+
+	cep, err := utils.CepMask(cep)
+	if err != nil {
+		errorHandler(w, http.StatusBadRequest, err)
 		return
 	}
 
@@ -54,15 +56,23 @@ func (cepHandler *CepHandler) GetCep(w http.ResponseWriter, r *http.Request) {
 	select {
 	case response := <-chResponse:
 		defer response.Body.Close()
-		responseBytes, err := io.ReadAll(response.Body)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		err = json.Unmarshal(responseBytes, &result)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
+
+		if response.StatusCode == http.StatusOK {
+
+			responseBytes, err := io.ReadAll(response.Body)
+			if err != nil {
+				errorHandler(w, http.StatusInternalServerError, err)
+				return
+			}
+			err = json.Unmarshal(responseBytes, &result)
+			if err != nil {
+				errorHandler(w, http.StatusInternalServerError, err)
+				return
+			}
+		} else {
+			result = dto.CepError{
+				StatusCode: response.StatusCode,
+			}
 		}
 
 		var cepResponse dto.CepResponseDTO
@@ -91,4 +101,13 @@ func (cepHandler *CepHandler) GetCep(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusGatewayTimeout)
 		return
 	}
+}
+
+func errorHandler(w http.ResponseWriter, statusCode int, err error) {
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(
+		dto.CepError{
+			StatusCode: http.StatusBadRequest,
+			Message:    err.Error(),
+		})
 }
